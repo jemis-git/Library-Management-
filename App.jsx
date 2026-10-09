@@ -278,16 +278,8 @@ export default function App() {
     setPasswordMsg({ text: '', type: '' })
 
     const activeUsername = (currentUser && currentUser.username) || 'admin'
-    const localUsers = JSON.parse(localStorage.getItem('registered_users') || '[]')
-    const userIndex = localUsers.findIndex(u => u.username.toLowerCase() === activeUsername.toLowerCase())
-
-    let storedPass = localStorage.getItem('admin_password') || 'admin123'
-    if (userIndex !== -1 && localUsers[userIndex].password) {
-      storedPass = localUsers[userIndex].password
-    }
-
-    if (currentPassword !== storedPass) {
-      setPasswordMsg({ text: 'Current password is incorrect!', type: 'error' })
+    if (!currentPassword) {
+      setPasswordMsg({ text: 'Please enter your current password!', type: 'error' })
       return
     }
     if (!newPassword || newPassword.length < 4) {
@@ -300,7 +292,7 @@ export default function App() {
     }
 
     try {
-      await fetch(`${API}/users/change-password`, {
+      const res = await fetch(`${API}/users/change-password`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -309,20 +301,56 @@ export default function App() {
           newPassword
         })
       })
-    } catch (err) {
-      console.warn('Backend password sync error (continuing with local update):', err)
-    }
 
-    if (userIndex !== -1) {
-      localUsers[userIndex].password = newPassword
-      localStorage.setItem('registered_users', JSON.stringify(localUsers))
+      const data = await res.json()
+
+      if (!res.ok) {
+        setPasswordMsg({ text: data.error || 'Failed to update password!', type: 'error' })
+        return
+      }
+
+      // Update local storage cache
+      const localUsers = JSON.parse(localStorage.getItem('registered_users') || '[]')
+      const userIndex = localUsers.findIndex(u => u.username?.toLowerCase() === activeUsername.toLowerCase())
+      if (userIndex !== -1) {
+        localUsers[userIndex].password = newPassword
+        localStorage.setItem('registered_users', JSON.stringify(localUsers))
+      }
+      if (activeUsername.toLowerCase() === 'admin' || activeUsername.toLowerCase() === 'superadmin') {
+        localStorage.setItem('admin_password', newPassword)
+      }
+
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordMsg({ text: 'Password changed successfully! ✅', type: 'success' })
+      showToast('Password changed successfully!')
+    } catch (err) {
+      console.warn('Backend password sync error (fallback check):', err)
+      // Offline fallback: check localStorage
+      const localUsers = JSON.parse(localStorage.getItem('registered_users') || '[]')
+      const userIndex = localUsers.findIndex(u => u.username?.toLowerCase() === activeUsername.toLowerCase())
+      let storedPass = localStorage.getItem('admin_password') || 'admin123'
+      if (userIndex !== -1 && localUsers[userIndex].password) {
+        storedPass = localUsers[userIndex].password
+      }
+
+      if (currentPassword !== storedPass) {
+        setPasswordMsg({ text: 'Current password is incorrect!', type: 'error' })
+        return
+      }
+
+      if (userIndex !== -1) {
+        localUsers[userIndex].password = newPassword
+        localStorage.setItem('registered_users', JSON.stringify(localUsers))
+      }
+      localStorage.setItem('admin_password', newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordMsg({ text: 'Password changed locally! (Server offline)', type: 'success' })
+      showToast('Password changed locally!')
     }
-    localStorage.setItem('admin_password', newPassword)
-    setCurrentPassword('')
-    setNewPassword('')
-    setConfirmPassword('')
-    setPasswordMsg({ text: 'Password changed successfully! ✅', type: 'success' })
-    showToast('Password changed successfully!')
   }
 
   // Handle logout -> directly redirect to default login page

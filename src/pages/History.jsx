@@ -7,23 +7,24 @@ export default function History({ transactions, currentUser }) {
 
   const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'Super Admin' || currentUser?.username?.toLowerCase() === 'superadmin'
 
-  // Sorting + filtering
-  const filtered = [...transactions]
-    .sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate))
+  // Sorting + filtering with safe property access
+  const validTransactions = (transactions || []).filter(t => t && t.status)
+  const filtered = [...validTransactions]
+    .sort((a, b) => (new Date(b.issueDate || 0) - new Date(a.issueDate || 0)))
     .filter(t => {
       const matchSearch =
-        t.studentName.toLowerCase().includes(search.toLowerCase()) ||
-        t.rollNo.toLowerCase().includes(search.toLowerCase()) ||
-        t.bookTitle.toLowerCase().includes(search.toLowerCase()) ||
+        (t.studentName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (t.rollNo || '').toLowerCase().includes(search.toLowerCase()) ||
+        (t.bookTitle || '').toLowerCase().includes(search.toLowerCase()) ||
         (isSuperAdmin && t.accountUsername && t.accountUsername.toLowerCase().includes(search.toLowerCase()))
       const matchStatus = statusFilter === 'all' || t.status === statusFilter
       return matchSearch && matchStatus
     })
 
   // Count for each status
-  const issued = transactions.filter(t => t.status === 'issued').length
-  const returned = transactions.filter(t => t.status === 'returned').length
-  const overdue = transactions.filter(t => t.status === 'overdue').length
+  const issued = validTransactions.filter(t => t.status === 'issued').length
+  const returned = validTransactions.filter(t => t.status === 'returned').length
+  const overdue = validTransactions.filter(t => t.status === 'overdue').length
 
   return (
     <div>

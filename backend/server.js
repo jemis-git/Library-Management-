@@ -78,7 +78,7 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema);
 
-// Seed or ensure Superadmin user exists in MongoDB
+// Seed or ensure Superadmin and Admin users exist in MongoDB
 async function ensureSuperadmin() {
   try {
     const existing = await User.findOne({
@@ -98,14 +98,32 @@ async function ensureSuperadmin() {
       });
       console.log('👑 Superadmin user initialized: Superadmin / admin123');
     } else {
-      // Ensure role is Super Admin without overwriting changed password
       if (existing.role !== 'Super Admin') {
         existing.role = 'Super Admin';
         await existing.save();
       }
     }
+
+    // Also ensure default Admin user exists in MongoDB
+    const existingAdmin = await User.findOne({
+      $or: [
+        { username: { $regex: /^admin$/i } },
+        { email: 'admin@library.edu' }
+      ]
+    });
+    if (!existingAdmin) {
+      await User.create({
+        username: 'admin',
+        email: 'admin@library.edu',
+        password: 'admin123',
+        companyName: 'Library Management',
+        logo: '',
+        role: 'Super Admin'
+      });
+      console.log('🛡️ Default admin user initialized: admin / admin123');
+    }
   } catch (err) {
-    console.error('Error seeding superadmin:', err);
+    console.error('Error seeding default admin users:', err);
   }
 }
 
@@ -284,7 +302,8 @@ app.get('/api/company', async (req, res) => {
     const { account } = req.query;
     let targetUser = null;
     if (account && account.toLowerCase() !== 'superadmin') {
-      targetUser = await User.findOne({ username: { $regex: new RegExp(`^${account}$`, 'i') } });
+      const cleanAcc = String(account).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      targetUser = await User.findOne({ username: { $regex: new RegExp(`^${cleanAcc}$`, 'i') } });
     }
     if (!targetUser) {
       targetUser = await User.findOne({ username: { $not: /^superadmin$/i } }).sort({ createdAt: -1 });
@@ -310,7 +329,8 @@ app.get('/api/accounts', async (req, res) => {
 
     const accountsWithStats = await Promise.all(
       users.map(async (u) => {
-        const usernameRegex = new RegExp(`^${u.username}$`, 'i');
+        const cleanName = u.username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const usernameRegex = new RegExp(`^${cleanName}$`, 'i');
         const isLegacyAdmin = u.username.toLowerCase() === 'admin';
 
         const filter = isLegacyAdmin
@@ -348,21 +368,31 @@ app.get('/api/accounts', async (req, res) => {
 // Delete account (Super Admin only)
 app.delete('/api/accounts/:id', async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const accountParam = req.params.id;
+    let user = null;
+    if (mongoose.Types.ObjectId.isValid(accountParam)) {
+      user = await User.findById(accountParam);
+    }
+    if (!user) {
+      const cleanParam = String(accountParam).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      user = await User.findOne({ username: { $regex: new RegExp(`^${cleanParam}$`, 'i') } });
+    }
+
     if (!user) {
       return res.status(404).json({ error: 'Account not found' });
     }
-    if (user.username.toLowerCase() === 'superadmin') {
-      return res.status(400).json({ error: 'Superadmin primary account cannot be deleted!' });
+    if (user.username.toLowerCase() === 'superadmin' || user.username.toLowerCase() === 'admin') {
+      return res.status(400).json({ error: 'System administrator accounts cannot be deleted!' });
     }
 
     // Clean up this account's books, students, and transactions
-    const usernameRegex = new RegExp(`^${user.username}$`, 'i');
+    const cleanUser = user.username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const usernameRegex = new RegExp(`^${cleanUser}$`, 'i');
     await Promise.all([
       Book.deleteMany({ accountUsername: usernameRegex }),
       Student.deleteMany({ accountUsername: usernameRegex }),
       Transaction.deleteMany({ accountUsername: usernameRegex }),
-      User.findByIdAndDelete(req.params.id)
+      User.findByIdAndDelete(user._id)
     ]);
 
     res.json({ message: `Account "${user.username}" and associated library data removed successfully!` });
@@ -395,8 +425,17 @@ app.post('/api/accounts/:id/credentials', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect Superadmin password!' });
     }
 
-    // 2. Retrieve target account
-    const targetUser = await User.findById(req.params.id);
+    // 2. Retrieve target account (support ObjectId or username)
+    const accountParam = req.params.id;
+    let targetUser = null;
+    if (mongoose.Types.ObjectId.isValid(accountParam)) {
+      targetUser = await User.findById(accountParam);
+    }
+    if (!targetUser) {
+      const cleanParam = String(accountParam).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      targetUser = await User.findOne({ username: { $regex: new RegExp(`^${cleanParam}$`, 'i') } });
+    }
+
     if (!targetUser) {
       return res.status(404).json({ error: 'Account not found.' });
     }
@@ -470,7 +509,8 @@ function buildAccountFilter(account) {
       ]
     };
   }
-  return { accountUsername: { $regex: new RegExp(`^${account}$`, 'i') } };
+  const cleanAccount = String(account).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { accountUsername: { $regex: new RegExp(`^${cleanAccount}$`, 'i') } };
 }
 
 // Get books (filtered by account or all for Superadmin)
@@ -498,6 +538,9 @@ app.post('/api/books', async (req, res) => {
 // Delete a book
 app.delete('/api/books/:id', async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid Book ID' });
+    }
     await Book.findByIdAndDelete(req.params.id);
     res.json({ message: 'Book deleted successfully' });
   } catch (err) {
@@ -508,7 +551,16 @@ app.delete('/api/books/:id', async (req, res) => {
 // Update a book (for available count)
 app.put('/api/books/:id', async (req, res) => {
   try {
-    const book = await Book.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid Book ID' });
+    }
+    const updateData = { ...req.body };
+    delete updateData._id;
+    delete updateData.__v;
+    const book = await Book.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    if (!book) {
+      return res.status(404).json({ error: 'Book not found' });
+    }
     res.json(book);
   } catch (err) {
     res.status(500).json({ error: 'Failed to update book' });
@@ -545,6 +597,9 @@ app.post('/api/students', async (req, res) => {
 // Delete a student
 app.delete('/api/students/:id', async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid Student ID' });
+    }
     await Student.findByIdAndDelete(req.params.id);
     res.json({ message: 'Student deleted successfully' });
   } catch (err) {
@@ -555,7 +610,16 @@ app.delete('/api/students/:id', async (req, res) => {
 // Update a student
 app.put('/api/students/:id', async (req, res) => {
   try {
-    const student = await Student.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid Student ID' });
+    }
+    const updateData = { ...req.body };
+    delete updateData._id;
+    delete updateData.__v;
+    const student = await Student.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
     res.json(student);
   } catch (err) {
     res.status(500).json({ error: 'Failed to update student' });
@@ -572,20 +636,15 @@ app.get('/api/transactions', async (req, res) => {
   try {
     const filter = buildAccountFilter(req.query.account);
     const today = new Date().toISOString().split('T')[0];
-    const transactions = await Transaction.find(filter);
 
-    // Automatically flag past-due active transactions as overdue
-    const updated = await Promise.all(
-      transactions.map(async (t) => {
-        if (t.status === 'issued' && t.dueDate && t.dueDate < today) {
-          t.status = 'overdue';
-          await t.save();
-        }
-        return t;
-      })
+    // Atomically mark any past-due issued transactions as overdue
+    await Transaction.updateMany(
+      { ...filter, status: 'issued', dueDate: { $lt: today, $ne: '' } },
+      { $set: { status: 'overdue' } }
     );
 
-    res.json(updated);
+    const transactions = await Transaction.find(filter);
+    res.json(transactions);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch transactions' });
   }
@@ -605,11 +664,17 @@ app.post('/api/transactions', async (req, res) => {
 // Return a book (update transaction)
 app.put('/api/transactions/:id/return', async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid Transaction ID' });
+    }
     const transaction = await Transaction.findByIdAndUpdate(
       req.params.id,
-      { status: 'returned', returnDate: req.body.returnDate },
+      { status: 'returned', returnDate: req.body.returnDate || new Date().toISOString().split('T')[0] },
       { new: true }
     );
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
     res.json(transaction);
   } catch (err) {
     res.status(500).json({ error: 'Failed to process return' });

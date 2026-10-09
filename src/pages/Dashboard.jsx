@@ -1,9 +1,10 @@
 // Dashboard - Library overview page
 export default function Dashboard({ books, students, transactions, totalBooks, availableBooks, issuedCount, overdueCount, setPage }) {
 
-  // Show last 5 transactions
-  const recentTxns = [...transactions]
-    .sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate))
+  // Show last 5 transactions safely
+  const recentTxns = [...(transactions || [])]
+    .filter(t => t && t.status)
+    .sort((a, b) => (new Date(b.issueDate || 0) - new Date(a.issueDate || 0)))
     .slice(0, 5)
 
   return (

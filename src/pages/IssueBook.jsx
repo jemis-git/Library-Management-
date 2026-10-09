@@ -20,18 +20,18 @@ export default function IssueBook({ books, setBooks, students, transactions, set
   // Search for return tab
   const [returnSearch, setReturnSearch] = useState('')
 
-  // Currently issued books (not yet returned)
-  const activeTransactions = transactions.filter(t => t.status === 'issued' || t.status === 'overdue')
+  // Currently issued books (not yet returned) with safe access
+  const activeTransactions = (transactions || []).filter(t => t && (t.status === 'issued' || t.status === 'overdue'))
 
   // Available books only (can be issued)
-  const availableBooks = books.filter(b => b.available > 0)
+  const availableBooks = (books || []).filter(b => b && (b.available || 0) > 0)
 
-  // Return search filter
-  const filteredForReturn = activeTransactions.filter(t =>
-    t.studentName.toLowerCase().includes(returnSearch.toLowerCase()) ||
-    t.rollNo.toLowerCase().includes(returnSearch.toLowerCase()) ||
-    t.bookTitle.toLowerCase().includes(returnSearch.toLowerCase())
-  )
+  // Return search filter with safe access
+  const filteredForReturn = activeTransactions.filter(t => t && (
+    (t.studentName || '').toLowerCase().includes(returnSearch.toLowerCase()) ||
+    (t.rollNo || '').toLowerCase().includes(returnSearch.toLowerCase()) ||
+    (t.bookTitle || '').toLowerCase().includes(returnSearch.toLowerCase())
+  ))
 
   // Issue a book
   async function handleIssue() {
@@ -40,22 +40,22 @@ export default function IssueBook({ books, setBooks, students, transactions, set
       return
     }
 
-    const student = students.find(s => s._id === selectedStudent)
-    const book = books.find(b => b._id === selectedBook)
+    const student = (students || []).find(s => s && s._id === selectedStudent)
+    const book = (books || []).find(b => b && b._id === selectedBook)
 
     if (!student || !book) {
       showToast('Invalid selection!', 'error')
       return
     }
 
-    if (book.available <= 0) {
+    if ((book.available || 0) <= 0) {
       showToast(`"${book.title}" is currently out of stock!`, 'error')
       return
     }
 
     // Check if already issued to this student
-    const alreadyIssued = transactions.find(
-      t => t.studentId === student._id && t.bookId === book._id && t.status !== 'returned'
+    const alreadyIssued = (transactions || []).find(
+      t => t && t.studentId === student._id && t.bookId === book._id && t.status !== 'returned'
     )
     if (alreadyIssued) {
       showToast(`${student.name} already has this book!`, 'error')
@@ -78,30 +78,38 @@ export default function IssueBook({ books, setBooks, students, transactions, set
     }
 
     try {
-      // Save transaction
+      // 1. Save transaction
       const res = await fetch(`${API}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(txnData)
       })
       const newTxn = await res.json()
-      setTransactions(prev => [...prev, newTxn])
+      if (!res.ok) {
+        throw new Error(newTxn.error || 'Failed to issue book')
+      }
 
-      // Decrease available count
-      const updatedBook = { ...book, available: book.available - 1 }
-      await fetch(`${API}/books/${book._id}`, {
+      // 2. Decrease available count
+      const updatedBook = { ...book, available: Math.max(0, (book.available || 0) - 1) }
+      const bookRes = await fetch(`${API}/books/${book._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedBook)
       })
-      setBooks(prev => prev.map(b => b._id === book._id ? updatedBook : b))
+      const savedBook = await bookRes.json()
+      if (!bookRes.ok) {
+        throw new Error(savedBook.error || 'Failed to update book inventory')
+      }
+
+      setTransactions(prev => [...prev, newTxn])
+      setBooks(prev => prev.map(b => b._id === book._id ? savedBook : b))
 
       showToast(`"${book.title}" has been issued to ${student.name}! ✅`)
       setSelectedStudent('')
       setSelectedBook('')
 
-    } catch {
-      showToast('Failed to issue book!', 'error')
+    } catch (err) {
+      showToast(err.message || 'Failed to issue book!', 'error')
     }
   }
 
@@ -110,32 +118,39 @@ export default function IssueBook({ books, setBooks, students, transactions, set
     const today = new Date().toISOString().split('T')[0]
 
     try {
-      // Update transaction
+      // 1. Update transaction
       const res = await fetch(`${API}/transactions/${txn._id}/return`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ returnDate: today })
       })
       const updatedTxn = await res.json()
+      if (!res.ok) {
+        throw new Error(updatedTxn.error || 'Failed to process return')
+      }
+
       setTransactions(prev => prev.map(t => t._id === txn._id ? updatedTxn : t))
 
-      // Increase available count (clamped to total copies)
-      const book = books.find(b => b._id === txn.bookId)
+      // 2. Increase available count (clamped to total copies)
+      const book = (books || []).find(b => b && (b._id === txn.bookId || String(b._id) === String(txn.bookId)))
       if (book) {
-        const newAvailable = Math.min(book.copies, (book.available || 0) + 1)
+        const newAvailable = Math.min(book.copies || 1, (book.available || 0) + 1)
         const updatedBook = { ...book, available: newAvailable }
-        await fetch(`${API}/books/${book._id}`, {
+        const bookRes = await fetch(`${API}/books/${book._id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updatedBook)
         })
-        setBooks(prev => prev.map(b => b._id === book._id ? updatedBook : b))
+        const savedBook = await bookRes.json()
+        if (bookRes.ok) {
+          setBooks(prev => prev.map(b => b._id === book._id ? savedBook : b))
+        }
       }
 
       showToast(`"${txn.bookTitle}" has been returned successfully! ✅`)
 
-    } catch {
-      showToast('Failed to process return!', 'error')
+    } catch (err) {
+      showToast(err.message || 'Failed to process return!', 'error')
     }
   }
 

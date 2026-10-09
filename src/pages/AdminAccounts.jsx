@@ -78,11 +78,12 @@ export default function AdminAccounts({
     setVerifying(true)
     setAuthError('')
 
-    const accountKey = targetAccount.id || targetAccount.username
+    const accountKey = targetAccount.id || targetAccount._id || targetAccount.username
+    const accountParam = targetAccount.id || targetAccount._id || targetAccount.username
 
     try {
       // 1. Verify via backend endpoint
-      const res = await fetch(`${API}/accounts/${targetAccount.id}/credentials`, {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(accountParam)}/credentials`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ superadminPassword: authPassword })
@@ -192,15 +193,17 @@ export default function AdminAccounts({
     const confirmMsg = `Are you sure you want to permanently delete account "@${acc.username}" (${acc.companyName})?\n\nThis will also delete all books, students, and circulation records for this account!`
     if (!window.confirm(confirmMsg)) return
 
+    const accountParam = acc.id || acc._id || acc.username
+
     try {
-      setDeletingId(acc.id)
-      const res = await fetch(`${API}/accounts/${acc.id}`, {
+      setDeletingId(acc.id || acc.username)
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(accountParam)}`, {
         method: 'DELETE'
       })
       const result = await res.json()
       if (res.ok) {
         showToast?.(result.message || `Account @${acc.username} deleted successfully!`, 'success')
-        setAccounts(prev => prev.filter(a => a.id !== acc.id))
+        setAccounts(prev => prev.filter(a => (a.id !== acc.id && a.username !== acc.username)))
       } else {
         showToast?.(result.error || 'Failed to delete account.', 'error')
       }

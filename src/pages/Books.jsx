@@ -95,9 +95,6 @@ function AddBookModal({ onClose, onAdd }) {
 // =============================================
 // Books Page - Main Component
 // =============================================
-// =============================================
-// Books Page - Main Component
-// =============================================
 export default function Books({ books, setBooks, showToast, API, currentUser }) {
 
   const [search, setSearch] = useState('')
@@ -105,12 +102,12 @@ export default function Books({ books, setBooks, showToast, API, currentUser }) 
 
   const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'Super Admin' || currentUser?.username?.toLowerCase() === 'superadmin'
 
-  // Search filter
-  const filteredBooks = books.filter(b =>
-    b.title.toLowerCase().includes(search.toLowerCase()) ||
-    b.author.toLowerCase().includes(search.toLowerCase()) ||
+  // Search filter with safe property access
+  const filteredBooks = (books || []).filter(b => b && (
+    (b.title || '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.author || '').toLowerCase().includes(search.toLowerCase()) ||
     (isSuperAdmin && b.accountUsername && b.accountUsername.toLowerCase().includes(search.toLowerCase()))
-  )
+  ))
 
   // Add a new book (backend + state update)
   async function handleAddBook(bookData) {
@@ -124,11 +121,14 @@ export default function Books({ books, setBooks, showToast, API, currentUser }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
-      const newBook = await res.json()
-      setBooks(prev => [...prev, newBook])
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add book')
+      }
+      setBooks(prev => [...prev, data])
       showToast(`"${bookData.title}" has been added successfully!`)
-    } catch {
-      showToast('Failed to add book!', 'error')
+    } catch (err) {
+      showToast(err.message || 'Failed to add book!', 'error')
     }
   }
 
@@ -136,11 +136,15 @@ export default function Books({ books, setBooks, showToast, API, currentUser }) 
   async function handleDelete(id, title) {
     if (!confirm(`Are you sure you want to delete "${title}"?`)) return
     try {
-      await fetch(`${API}/books/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${API}/books/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete book')
+      }
       setBooks(prev => prev.filter(b => b._id !== id))
       showToast(`"${title}" has been deleted`)
-    } catch {
-      showToast('Failed to delete book!', 'error')
+    } catch (err) {
+      showToast(err.message || 'Failed to delete book!', 'error')
     }
   }
 

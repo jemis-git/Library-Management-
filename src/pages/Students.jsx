@@ -146,15 +146,27 @@ export default function Students({ students, setStudents, showToast, API, curren
 
   const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'Super Admin' || currentUser?.username?.toLowerCase() === 'superadmin'
 
-  // Search filter
-  const filteredStudents = students.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.rollNo.toLowerCase().includes(search.toLowerCase()) ||
+  // Search filter with safe property access
+  const filteredStudents = (students || []).filter(s => s && (
+    (s.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.rollNo || '').toLowerCase().includes(search.toLowerCase()) ||
     (isSuperAdmin && s.accountUsername && s.accountUsername.toLowerCase().includes(search.toLowerCase()))
-  )
+  ))
 
   // Add or Edit a student
   async function handleSaveStudent(studentData) {
+    // Check duplicate roll number for same account
+    const isDuplicateRoll = (students || []).some(s =>
+      s &&
+      s._id !== studentData._id &&
+      s.rollNo?.toLowerCase() === studentData.rollNo?.toLowerCase() &&
+      (!studentData.accountUsername || s.accountUsername?.toLowerCase() === studentData.accountUsername?.toLowerCase())
+    )
+    if (isDuplicateRoll) {
+      showToast(`Roll number "${studentData.rollNo}" is already assigned to another student!`, 'error')
+      return
+    }
+
     if (studentData._id) {
       // Edit Mode
       try {
@@ -163,11 +175,14 @@ export default function Students({ students, setStudents, showToast, API, curren
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(studentData)
         })
-        const updatedStudent = await res.json()
-        setStudents(prev => prev.map(s => s._id === studentData._id ? updatedStudent : s))
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to update student')
+        }
+        setStudents(prev => prev.map(s => s._id === studentData._id ? data : s))
         showToast(`${studentData.name}'s details updated successfully!`)
-      } catch {
-        showToast('Failed to update student!', 'error')
+      } catch (err) {
+        showToast(err.message || 'Failed to update student!', 'error')
       }
     } else {
       // Add Mode
@@ -181,11 +196,14 @@ export default function Students({ students, setStudents, showToast, API, curren
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         })
-        const newStudent = await res.json()
-        setStudents(prev => [...prev, newStudent])
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to add student')
+        }
+        setStudents(prev => [...prev, data])
         showToast(`${studentData.name} has been added successfully!`)
-      } catch {
-        showToast('Failed to add student!', 'error')
+      } catch (err) {
+        showToast(err.message || 'Failed to add student!', 'error')
       }
     }
     setShowModal(false)
@@ -196,11 +214,15 @@ export default function Students({ students, setStudents, showToast, API, curren
   async function handleDelete(id, name) {
     if (!confirm(`Are you sure you want to remove "${name}"?`)) return
     try {
-      await fetch(`${API}/students/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${API}/students/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete student')
+      }
       setStudents(prev => prev.filter(s => s._id !== id))
       showToast(`${name} has been removed`)
-    } catch {
-      showToast('Failed to delete student!', 'error')
+    } catch (err) {
+      showToast(err.message || 'Failed to delete student!', 'error')
     }
   }
   
