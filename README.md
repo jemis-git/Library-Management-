@@ -47,8 +47,9 @@ A modern, full-stack College Library Management System built with React (Vite) a
    - Frontend: `npm run dev` (Runs on Port 5173)
 
 ## 🔐 Default Credentials
-- **Username:** `admin`
-- **Password:** `admin123`
+- **Super Admin Username:** `Superadmin` (or `admin`)
+- **Super Admin Password:** `admin123`
+- **Tenant Accounts:** Self-register via the Registration page with complete data isolation.
 
 ---
 *Developed for efficient college library administration.*

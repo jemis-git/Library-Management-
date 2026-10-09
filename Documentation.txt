@@ -1,0 +1,259 @@
+================================================================================
+                           LIBRARYPRO - SYSTEM DOCUMENTATION
+                     College Library Management System (Full Stack)
+================================================================================
+
+1. PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+LibraryPro is a modern, full-stack College Library Management System.
+It is built with React (Vite) on the frontend, Node.js and Express on the backend,
+and MongoDB (via Mongoose) as the database. It features a responsive dark-themed
+glassmorphic user interface to manage library books, student registrations,
+book issuance/return tracking, and comprehensive transaction logs.
+
+
+2. TECH STACK
+--------------------------------------------------------------------------------
+- Frontend:
+  * React 18
+  * Vite 5 (Fast build & development tool)
+  * Vanilla CSS with custom dark mode & glassmorphism theme
+  * Responsive layout with tabbed single-page navigation
+
+- Backend:
+  * Node.js
+  * Express.js (REST API framework)
+  * CORS (Cross-Origin Resource Sharing)
+  * Express JSON body parser
+
+- Database:
+  * MongoDB (Local instance at mongodb://localhost:27017/library_db)
+  * Mongoose ODM (Object Data Modeling)
+
+
+3. DIRECTORY STRUCTURE
+--------------------------------------------------------------------------------
+library-management/
+│
+├── backend/
+│   ├── node_modules/
+│   ├── package.json              # Backend dependencies (express, mongoose, cors)
+│   └── server.js                 # Express server, schemas, and REST API routes
+│
+├── src/
+│   ├── pages/
+│   │   ├── Books.jsx             # Book inventory, search, add/delete books
+│   │   ├── Dashboard.jsx         # Analytics, summary metrics & recent activity
+│   │   ├── History.jsx           # Audit logs with status filtering & search
+│   │   ├── IssueBook.jsx         # Issue/Return tabs, stock sync & due dates
+│   │   ├── Login.jsx             # Admin login gatekeeper screen
+│   │   └── Students.jsx          # Student directory, add/edit/delete with validation
+│   └── main.jsx                  # React application entry point
+│
+├── App.jsx                       # Root component, state management & toast alerts
+├── index.html                    # HTML root template
+├── package.json                  # Frontend dependencies & Vite scripts
+├── start.bat                     # Windows one-click dual startup script
+├── styles.css                    # Complete CSS design system & styles
+├── vite.config.js                # Vite configuration
+└── Documentation.txt             # System Documentation (this file)
+
+
+4. DATABASE SCHEMAS (MONGOOSE)
+--------------------------------------------------------------------------------
+Database Name: library_db
+
+[A] Book Schema (Collection: books)
+    - title       : String   (Book title)
+    - author      : String   (Author name)
+    - genre       : String   (Subject/Genre, e.g., Computer Science, Physics)
+    - isbn        : String   (Unique ISBN number)
+    - copies      : Number   (Total copies owned)
+    - available   : Number   (Current available copies on shelf)
+
+[B] Student Schema (Collection: students)
+    - name        : String   (Student full name)
+    - rollNo      : String   (College Roll Number)
+    - branch      : String   (Branch/Department, e.g., CS, Mechanical, Other)
+    - year        : String   (Academic year, e.g., 1st Year, 2nd Year)
+    - phone       : String   (10-digit mobile number)
+    - email       : String   (Student email address)
+
+[C] Transaction Schema (Collection: transactions)
+    - bookId      : String   (Referenced Book _id)
+    - studentId   : String   (Referenced Student _id)
+    - bookTitle   : String   (Book title snapshot)
+    - studentName : String   (Student name snapshot)
+    - rollNo      : String   (Student roll number snapshot)
+    - issueDate   : String   (Format: YYYY-MM-DD)
+    - dueDate     : String   (Format: YYYY-MM-DD, Default: Issue date + 14 days)
+    - returnDate  : String   (Format: YYYY-MM-DD or null if not yet returned)
+    - status      : String   ('issued', 'returned', 'overdue')
+
+
+5. REST API ENDPOINTS
+--------------------------------------------------------------------------------
+Base URL: http://localhost:5000/api
+
+--- BOOKS API ---
+1. GET    /api/books
+   - Description : Fetch all books from the database
+   - Response    : Array of book objects
+
+2. POST   /api/books
+   - Description : Add a new book to the catalog
+   - Body        : { title, author, genre, isbn, copies, available }
+   - Response    : Created book object
+
+3. PUT    /api/books/:id
+   - Description : Update book details or available count
+   - Body        : Updated fields (e.g., { available: 4 })
+   - Response    : Updated book object
+
+4. DELETE /api/books/:id
+   - Description : Remove a book by its MongoDB ID
+   - Response    : { message: "Book deleted successfully" }
+
+--- STUDENTS API ---
+1. GET    /api/students
+   - Description : Fetch all registered students
+   - Response    : Array of student objects
+
+2. POST   /api/students
+   - Description : Register a new student
+   - Body        : { name, rollNo, branch, year, phone, email }
+   - Response    : Created student object
+
+3. PUT    /api/students/:id
+   - Description : Update student profile details
+   - Body        : Updated fields
+   - Response    : Updated student object
+
+4. DELETE /api/students/:id
+   - Description : Delete student record by ID
+   - Response    : { message: "Student deleted successfully" }
+
+--- TRANSACTIONS API ---
+1. GET    /api/transactions
+   - Description : Fetch all transaction records
+   - Response    : Array of transaction objects
+
+2. POST   /api/transactions
+   - Description : Record a new book issuance
+   - Body        : { bookId, studentId, bookTitle, studentName, rollNo, issueDate, dueDate, returnDate: null, status: "issued" }
+   - Response    : Created transaction object
+
+3. PUT    /api/transactions/:id/return
+   - Description : Mark an issued book as returned
+   - Body        : { returnDate: "YYYY-MM-DD" }
+   - Response    : Updated transaction object (status set to 'returned')
+
+
+6. CORE FEATURES & MODULES
+--------------------------------------------------------------------------------
+1. Authentication (Login.jsx):
+   - Secure login portal for administrative access.
+   - Built-in simulation with input validation and loading animations.
+
+2. Dashboard (Dashboard.jsx):
+   - 4 Live KPI Cards: Total Books, Available Copies, Issued Books, Overdue Count.
+   - Recent Transactions table with status badges.
+   - Quick Action buttons to jump straight to Add Book, Add Student, or Issue Book.
+   - Summary overview of active counts.
+
+3. Book Management (Books.jsx):
+   - Real-time search filter across titles and authors.
+   - Add Book modal with category dropdown and copy counters.
+   - Book cards displaying genre, ISBN, total copies, and stock status.
+   - Single-click book removal with immediate database sync.
+
+4. Student Directory (Students.jsx):
+   - Multi-field search (name, roll number, email, phone, branch).
+   - Add & Edit modal with 10-digit phone number formatting and custom branch support.
+   - Delete confirmation modal preventing accidental data loss.
+
+5. Issue & Return System (IssueBook.jsx):
+   - "Issue Book" Tab:
+     * Only displays books that currently have available copies (> 0).
+     * Prevents issuing duplicate copies of the same book to the same student.
+     * Auto-computes a 14-day default return due date.
+     * Decrements the available book count in database upon issuance.
+   - "Return Book" Tab:
+     * Lists all active issued and overdue books.
+     * Filter by student, roll number, or book title.
+     * One-click return processing that marks status 'returned' and increments book available count (+1).
+
+6. Transaction History (History.jsx):
+   - Comprehensive audit trail of all library events.
+   - Categorized status filters: All, Issued, Returned, Overdue.
+   - Search bar across student names, roll numbers, and titles.
+   - Bottom analytical breakdown of transaction volume.
+
+
+7. SYSTEM ROLES & DEFAULT CREDENTIALS
+--------------------------------------------------------------------------------
+- Primary Super Admin:
+  * Username : Superadmin (case-insensitive)
+  * Password : admin123
+  * Access   : Global Super Admin Panel ("Registered Accounts" tab)
+               Can view and inspect all registered accounts, company names, logos,
+               total books, students, and circulation counts across the system.
+               Can view combined data or inspect specific tenant data.
+
+- Registered Tenant Accounts:
+  * Users can register their institution on the Registration page.
+  * Each registered account has complete data isolation.
+  * A tenant account only sees and manages its own books, students, and transactions.
+
+
+8. INSTALLATION & SETUP INSTRUCTIONS
+--------------------------------------------------------------------------------
+Requirements:
+- Node.js (v16.x or newer)
+- MongoDB running locally on port 27017 (e.g., MongoDB Compass or MongoDB Community Service)
+
+[Option A] Windows Automatic Quick-Start:
+1. Double-click the file: start.bat
+2. It will automatically start:
+   - Backend Server on http://localhost:5000
+   - Frontend Server on http://localhost:5173
+   - Open your default web browser to http://localhost:5173
+
+[Option B] Manual Installation & Execution:
+1. Clone / Navigate to project folder:
+   cd library-management
+
+2. Install frontend dependencies:
+   npm install
+
+3. Install backend dependencies:
+   cd backend
+   npm install
+   cd ..
+
+4. Start Backend Server:
+   cd backend
+   node server.js
+   (Server starts on http://localhost:5000)
+
+5. Start Frontend (in a new terminal):
+   npm run dev
+   (Vite server starts on http://localhost:5173)
+
+
+9. COMMON TROUBLESHOOTING
+--------------------------------------------------------------------------------
+1. Error: "Could not connect to server. Please run start.bat!"
+   - Cause: Backend server is not running on port 5000.
+   - Fix: Open a terminal, go to backend directory and run 'node server.js'.
+
+2. Error: "MongoDB error" in backend console
+   - Cause: MongoDB service is not started on localhost:27017.
+   - Fix: Start MongoDB service (Windows: Services -> MongoDB -> Start, or run 'net start MongoDB' in Admin CMD).
+
+3. Issue: Student Phone Number error
+   - Fix: Phone numbers must contain exactly 10 numerical digits.
+
+================================================================================
+                           END OF DOCUMENTATION
+================================================================================

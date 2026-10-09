@@ -1,9 +1,11 @@
 import { useState } from 'react'
 
-export default function History({ transactions }) {
+export default function History({ transactions, currentUser }) {
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+
+  const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'Super Admin' || currentUser?.username?.toLowerCase() === 'superadmin'
 
   // Sorting + filtering
   const filtered = [...transactions]
@@ -12,7 +14,8 @@ export default function History({ transactions }) {
       const matchSearch =
         t.studentName.toLowerCase().includes(search.toLowerCase()) ||
         t.rollNo.toLowerCase().includes(search.toLowerCase()) ||
-        t.bookTitle.toLowerCase().includes(search.toLowerCase())
+        t.bookTitle.toLowerCase().includes(search.toLowerCase()) ||
+        (isSuperAdmin && t.accountUsername && t.accountUsername.toLowerCase().includes(search.toLowerCase()))
       const matchStatus = statusFilter === 'all' || t.status === statusFilter
       return matchSearch && matchStatus
     })
@@ -46,7 +49,7 @@ export default function History({ transactions }) {
 
       {/* Search */}
       <div className="search-box" style={{ marginBottom: 14 }}>
-        🔍 <input placeholder="Search by student, roll number or book..."
+        🔍 <input placeholder={isSuperAdmin ? "Search by student, roll number, book, or account..." : "Search by student, roll number or book..."}
           value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
@@ -68,6 +71,7 @@ export default function History({ transactions }) {
                   <th>#</th>
                   <th>Student</th>
                   <th>Book</th>
+                  {isSuperAdmin && <th>Account</th>}
                   <th>Issue Date</th>
                   <th>Due Date</th>
                   <th>Return Date</th>
@@ -77,22 +81,29 @@ export default function History({ transactions }) {
               <tbody>
                 {filtered.map((t, i) => (
                   <tr key={t._id}>
-                    <td style={{ color: '#666' }}>{i + 1}</td>
+                    <td style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>{i + 1}</td>
                     <td>
                       <strong>{t.studentName}</strong>
                       <br />
-                      <small style={{ color: '#888' }}>{t.rollNo}</small>
+                      <small style={{ color: 'var(--text-muted)' }}>{t.rollNo}</small>
                     </td>
                     <td style={{ fontSize: 13 }}>{t.bookTitle}</td>
-                    <td style={{ color: '#888', fontSize: 12 }}>{t.issueDate}</td>
+                    {isSuperAdmin && (
+                      <td>
+                        <span className="badge badge-admin" style={{ fontSize: 11 }}>
+                          @{t.accountUsername || 'admin'}
+                        </span>
+                      </td>
+                    )}
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t.issueDate}</td>
                     <td style={{
-                      color: t.status === 'overdue' ? '#e57373' : '#888',
+                      color: t.status === 'overdue' ? 'var(--danger)' : 'var(--text-muted)',
                       fontWeight: t.status === 'overdue' ? 'bold' : 'normal',
                       fontSize: 12
                     }}>
                       {t.dueDate}
                     </td>
-                    <td style={{ color: t.returnDate ? '#4caf50' : '#666', fontSize: 12 }}>
+                    <td style={{ color: t.returnDate ? 'var(--success)' : 'var(--text-subtle)', fontSize: 12 }}>
                       {t.returnDate || '—'}
                     </td>
                     <td>
@@ -107,25 +118,25 @@ export default function History({ transactions }) {
       </div>
 
       {/* Summary Cards at bottom */}
-      <div style={{ display: 'flex', gap: 15, marginTop: 20 }}>
-        <div className="stat-card" style={{ flex: 1 }}>
+      <div className="stats-row" style={{ marginTop: 20, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+        <div className="stat-card stat-books">
           <div className="stat-icon">📊</div>
           <div>
             <div className="stat-number">{transactions.length}</div>
             <div className="stat-label">Total Records</div>
           </div>
         </div>
-        <div className="stat-card" style={{ flex: 1 }}>
+        <div className="stat-card stat-issued">
           <div className="stat-icon">📤</div>
           <div>
-            <div className="stat-number" style={{ color: '#ff9800' }}>{issued}</div>
+            <div className="stat-number">{issued}</div>
             <div className="stat-label">Issued Now</div>
           </div>
         </div>
-        <div className="stat-card" style={{ flex: 1 }}>
+        <div className="stat-card stat-overdue">
           <div className="stat-icon">⚠️</div>
           <div>
-            <div className="stat-number" style={{ color: '#e57373' }}>{overdue}</div>
+            <div className="stat-number">{overdue}</div>
             <div className="stat-label">Overdue</div>
           </div>
         </div>

@@ -12,12 +12,24 @@ function AddBookModal({ onClose, onAdd }) {
 
   function handleSubmit() {
     // Validation
-    if (!title || !author || !isbn) {
+    if (!title.trim() || !author.trim() || !isbn.trim()) {
       setError('Title, Author and ISBN are required!')
       return
     }
+    const numCopies = parseInt(copies, 10)
+    if (isNaN(numCopies) || numCopies < 1) {
+      setError('Total copies must be at least 1!')
+      return
+    }
     // Send data to parent
-    onAdd({ title, author, genre, isbn, copies: Number(copies), available: Number(copies) })
+    onAdd({
+      title: title.trim(),
+      author: author.trim(),
+      genre,
+      isbn: isbn.trim(),
+      copies: numCopies,
+      available: numCopies
+    })
     onClose()
   }
 
@@ -83,24 +95,34 @@ function AddBookModal({ onClose, onAdd }) {
 // =============================================
 // Books Page - Main Component
 // =============================================
-export default function Books({ books, setBooks, showToast, API }) {
+// =============================================
+// Books Page - Main Component
+// =============================================
+export default function Books({ books, setBooks, showToast, API, currentUser }) {
 
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
 
+  const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'Super Admin' || currentUser?.username?.toLowerCase() === 'superadmin'
+
   // Search filter
   const filteredBooks = books.filter(b =>
     b.title.toLowerCase().includes(search.toLowerCase()) ||
-    b.author.toLowerCase().includes(search.toLowerCase())
+    b.author.toLowerCase().includes(search.toLowerCase()) ||
+    (isSuperAdmin && b.accountUsername && b.accountUsername.toLowerCase().includes(search.toLowerCase()))
   )
 
   // Add a new book (backend + state update)
   async function handleAddBook(bookData) {
     try {
+      const payload = {
+        ...bookData,
+        accountUsername: currentUser?.username || ''
+      }
       const res = await fetch(`${API}/books`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bookData)
+        body: JSON.stringify(payload)
       })
       const newBook = await res.json()
       setBooks(prev => [...prev, newBook])
@@ -127,7 +149,7 @@ export default function Books({ books, setBooks, showToast, API }) {
       {/* Filter Row */}
       <div className="filter-row">
         <div className="search-box" style={{ flex: 1 }}>
-          🔍 <input placeholder="Search by book title or author..."
+          🔍 <input placeholder={isSuperAdmin ? "Search by book title, author, or account..." : "Search by book title or author..."}
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <button className="btn btn-blue" onClick={() => setShowModal(true)}>
@@ -157,6 +179,7 @@ export default function Books({ books, setBooks, showToast, API }) {
                   <th>ISBN</th>
                   <th>Total</th>
                   <th>Available</th>
+                  {isSuperAdmin && <th>Account</th>}
                   <th>Status</th>
                   <th>Delete</th>
                 </tr>
@@ -164,13 +187,20 @@ export default function Books({ books, setBooks, showToast, API }) {
               <tbody>
                 {filteredBooks.map((book, index) => (
                   <tr key={book._id}>
-                    <td style={{ color: '#666' }}>{index + 1}</td>
+                    <td style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>{index + 1}</td>
                     <td><strong>{book.title}</strong></td>
                     <td>{book.author}</td>
-                    <td style={{ color: '#888', fontSize: 12 }}>{book.genre}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{book.isbn}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{book.genre}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{book.isbn}</td>
                     <td>{book.copies}</td>
-                    <td><strong style={{ color: book.available === 0 ? '#e57373' : '#4caf50' }}>{book.available}</strong></td>
+                    <td><strong style={{ color: book.available === 0 ? 'var(--danger)' : 'var(--success)' }}>{book.available}</strong></td>
+                    {isSuperAdmin && (
+                      <td>
+                        <span className="badge badge-admin" style={{ fontSize: 11 }}>
+                          @{book.accountUsername || 'admin'}
+                        </span>
+                      </td>
+                    )}
                     <td>
                       <span className={`badge ${book.available > 0 ? 'badge-available' : 'badge-issued'}`}>
                         {book.available > 0 ? 'Available' : 'Out of Stock'}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export default function IssueBook({ books, setBooks, students, transactions, setTransactions, showToast, API }) {
+export default function IssueBook({ books, setBooks, students, transactions, setTransactions, showToast, API, currentUser }) {
 
   // Tab: 'issue' or 'return'
   const [tab, setTab] = useState('issue')
@@ -48,6 +48,11 @@ export default function IssueBook({ books, setBooks, students, transactions, set
       return
     }
 
+    if (book.available <= 0) {
+      showToast(`"${book.title}" is currently out of stock!`, 'error')
+      return
+    }
+
     // Check if already issued to this student
     const alreadyIssued = transactions.find(
       t => t.studentId === student._id && t.bookId === book._id && t.status !== 'returned'
@@ -68,7 +73,8 @@ export default function IssueBook({ books, setBooks, students, transactions, set
       issueDate: today,
       dueDate: dueDate,
       returnDate: null,
-      status: 'issued'
+      status: 'issued',
+      accountUsername: currentUser?.username || ''
     }
 
     try {
@@ -113,10 +119,11 @@ export default function IssueBook({ books, setBooks, students, transactions, set
       const updatedTxn = await res.json()
       setTransactions(prev => prev.map(t => t._id === txn._id ? updatedTxn : t))
 
-      // Increase available count
+      // Increase available count (clamped to total copies)
       const book = books.find(b => b._id === txn.bookId)
       if (book) {
-        const updatedBook = { ...book, available: book.available + 1 }
+        const newAvailable = Math.min(book.copies, (book.available || 0) + 1)
+        const updatedBook = { ...book, available: newAvailable }
         await fetch(`${API}/books/${book._id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -146,10 +153,10 @@ export default function IssueBook({ books, setBooks, students, transactions, set
 
       {/* ---- ISSUE TAB ---- */}
       {tab === 'issue' && (
-        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <div className="issue-grid">
 
           {/* Issue Form */}
-          <div className="card" style={{ flex: 1 }}>
+          <div className="card">
             <div className="card-header"><h3>📤 Issue a Book</h3></div>
             <div className="card-body">
 
@@ -191,7 +198,7 @@ export default function IssueBook({ books, setBooks, students, transactions, set
           </div>
 
           {/* Currently Issued List */}
-          <div className="card" style={{ flex: 1 }}>
+          <div className="card">
             <div className="card-header">
               <h3>📋 Currently Issued ({activeTransactions.length})</h3>
             </div>
@@ -215,8 +222,8 @@ export default function IssueBook({ books, setBooks, students, transactions, set
                     {activeTransactions.map(t => (
                       <tr key={t._id}>
                         <td><strong>{t.studentName}</strong></td>
-                        <td style={{ fontSize: 12 }}>{t.bookTitle}</td>
-                        <td style={{ fontSize: 12, color: t.status === 'overdue' ? '#e57373' : '#888' }}>{t.dueDate}</td>
+                        <td>{t.bookTitle}</td>
+                        <td style={{ color: t.status === 'overdue' ? 'var(--danger)' : 'var(--text-muted)' }}>{t.dueDate}</td>
                         <td><span className={`badge badge-${t.status}`}>{t.status}</span></td>
                       </tr>
                     ))}
@@ -233,7 +240,7 @@ export default function IssueBook({ books, setBooks, students, transactions, set
         <div className="card">
           <div className="card-header"><h3>📥 Return a Book</h3></div>
 
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #333' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
             <div className="search-box">
               🔍 <input placeholder="Search by student or book..."
                 value={returnSearch} onChange={e => setReturnSearch(e.target.value)} />
@@ -263,12 +270,16 @@ export default function IssueBook({ books, setBooks, students, transactions, set
                   {filteredForReturn.map(t => (
                     <tr key={t._id}>
                       <td><strong>{t.studentName}</strong></td>
-                      <td><code style={{ background: '#0f3460', padding: '2px 7px', borderRadius: 4, fontSize: 12 }}>{t.rollNo}</code></td>
+                      <td>
+                        <code style={{ background: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', padding: '3px 8px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                          {t.rollNo}
+                        </code>
+                      </td>
                       <td style={{ fontSize: 13 }}>{t.bookTitle}</td>
-                      <td style={{ color: '#888', fontSize: 12 }}>{t.issueDate}</td>
-                      <td style={{ color: t.status === 'overdue' ? '#e57373' : '#888', fontSize: 12, fontWeight: t.status === 'overdue' ? 'bold' : 'normal' }}>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t.issueDate}</td>
+                      <td style={{ color: t.status === 'overdue' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 12, fontWeight: t.status === 'overdue' ? 'bold' : 'normal' }}>
                         {t.dueDate}
-                        {t.status === 'overdue' && <><br /><small>⚠️ Late!</small></>}
+                        {t.status === 'overdue' && <><br /><small style={{ color: 'var(--danger)', fontWeight: 600 }}>⚠️ Overdue</small></>}
                       </td>
                       <td><span className={`badge badge-${t.status}`}>{t.status}</span></td>
                       <td>

@@ -11,11 +11,15 @@ const cors = require('cors');
 // 2. App setup
 const app = express();
 app.use(cors());              // Allow frontend requests
-app.use(express.json());      // Parse JSON data
+app.use(express.json({ limit: '10mb' }));      // Parse JSON data (with 10mb limit for logos)
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // 3. Connect to MongoDB (local MongoDB Compass)
 mongoose.connect('mongodb://localhost:27017/library_db')
-  .then(() => console.log('✅ Connected to MongoDB successfully!'))
+  .then(async () => {
+    console.log('✅ Connected to MongoDB successfully!');
+    await ensureSuperadmin();
+  })
   .catch((err) => console.log('❌ MongoDB error:', err));
 
 
@@ -30,7 +34,8 @@ const BookSchema = new mongoose.Schema({
   genre: String,          // Subject/genre
   isbn: String,           // ISBN number
   copies: Number,         // Total copies
-  available: Number       // Available copies
+  available: Number,      // Available copies
+  accountUsername: { type: String, default: '' } // Isolated per account
 });
 const Book = mongoose.model('Book', BookSchema);
 
@@ -41,7 +46,8 @@ const StudentSchema = new mongoose.Schema({
   branch: String,         // Branch
   year: String,           // Year
   phone: String,          // Phone number
-  email: String           // Email
+  email: String,          // Email
+  accountUsername: { type: String, default: '' } // Isolated per account
 });
 const Student = mongoose.model('Student', StudentSchema);
 
@@ -55,26 +61,430 @@ const TransactionSchema = new mongoose.Schema({
   issueDate: String,
   dueDate: String,
   returnDate: String,
-  status: String           // 'issued', 'returned', 'overdue'
+  status: String,          // 'issued', 'returned', 'overdue'
+  accountUsername: { type: String, default: '' } // Isolated per account
 });
 const Transaction = mongoose.model('Transaction', TransactionSchema);
 
+// User schema (Registration & Authentication)
+const UserSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  username: { type: String, required: true, unique: true, trim: true },
+  password: { type: String, required: true },
+  companyName: { type: String, required: true, trim: true },
+  logo: { type: String, default: '' },
+  role: { type: String, default: 'Admin' },
+  createdAt: { type: Date, default: Date.now }
+});
+const User = mongoose.model('User', UserSchema);
+
+// Seed or ensure Superadmin user exists in MongoDB
+async function ensureSuperadmin() {
+  try {
+    const existing = await User.findOne({
+      $or: [
+        { username: { $regex: /^superadmin$/i } },
+        { email: 'superadmin@library.system' }
+      ]
+    });
+    if (!existing) {
+      await User.create({
+        username: 'Superadmin',
+        email: 'superadmin@library.system',
+        password: 'admin123',
+        companyName: 'Library Management System',
+        logo: '',
+        role: 'Super Admin'
+      });
+      console.log('👑 Superadmin user initialized: Superadmin / admin123');
+    } else {
+      // Ensure role is Super Admin without overwriting changed password
+      if (existing.role !== 'Super Admin') {
+        existing.role = 'Super Admin';
+        await existing.save();
+      }
+    }
+  } catch (err) {
+    console.error('Error seeding superadmin:', err);
+  }
+}
+
 
 // =============================================
-// BOOK ROUTES
+// AUTH & REGISTRATION ROUTES
 // =============================================
 
-// Get all books
+// Register a new user
+app.post(['/api/register', '/api/auth/register'], async (req, res) => {
+  try {
+    const { email, username, password, confirmPassword, companyName, logo } = req.body;
+
+    // Validate required fields
+    if (!email || !username || !password || !companyName) {
+      return res.status(400).json({ error: 'All fields (Email, Username, Password, Company Name) are required!' });
+    }
+
+    // Validate passwords match
+    if (confirmPassword && password !== confirmPassword) {
+      return res.status(400).json({ error: 'Passwords do not match!' });
+    }
+
+    if (password.length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters long!' });
+    }
+
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCompany = companyName.trim();
+
+    if (cleanUsername.toLowerCase() === 'superadmin') {
+      return res.status(400).json({ error: 'Username "Superadmin" is reserved for the primary system administrator.' });
+    }
+
+    // Check if username already exists (case-insensitive)
+    const existingUser = await User.findOne({
+      username: { $regex: new RegExp(`^${cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+    });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username is already taken! Please choose another.' });
+    }
+
+    // Check if email already exists
+    const existingEmail = await User.findOne({ email: cleanEmail });
+    if (existingEmail) {
+      return res.status(400).json({ error: 'Email is already registered! Please sign in or use another email.' });
+    }
+
+    // Save to database
+    const newUser = new User({
+      email: cleanEmail,
+      username: cleanUsername,
+      password: password,
+      companyName: cleanCompany,
+      logo: logo || '',
+      role: 'Admin'
+    });
+    await newUser.save();
+
+    res.status(201).json({
+      message: 'Registration successful! You can now sign in.',
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+        companyName: newUser.companyName,
+        logo: newUser.logo,
+        role: newUser.role
+      }
+    });
+  } catch (err) {
+    console.error('Registration error:', err);
+    res.status(500).json({ error: 'Failed to register user. Please try again.' });
+  }
+});
+
+// Login user
+app.post(['/api/login', '/api/auth/login'], async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Please enter both username and password!' });
+    }
+
+    const cleanLogin = username.trim();
+
+    // 1. Check Superadmin explicitly
+    if (cleanLogin.toLowerCase() === 'superadmin') {
+      let saUser = await User.findOne({ username: { $regex: /^superadmin$/i } });
+      if (!saUser) {
+        saUser = await User.create({
+          username: 'Superadmin',
+          email: 'superadmin@library.system',
+          password: 'admin123',
+          companyName: 'Library Management System',
+          logo: '',
+          role: 'Super Admin'
+        });
+      }
+      if (saUser.password === password) {
+        return res.json({
+          message: 'Login successful as Superadmin! 👑',
+          user: {
+            id: saUser._id,
+            username: saUser.username,
+            email: saUser.email,
+            companyName: saUser.companyName || 'Library Management System',
+            logo: saUser.logo || '',
+            role: 'Super Admin',
+            isSuperAdmin: true
+          }
+        });
+      } else {
+        return res.status(401).json({ error: 'Invalid password for Superadmin!' });
+      }
+    }
+
+    // 2. Find registered user in MongoDB by username or email
+    const user = await User.findOne({
+      $or: [
+        { username: { $regex: new RegExp(`^${cleanLogin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+        { email: cleanLogin.toLowerCase() }
+      ]
+    });
+
+    if (user) {
+      if (user.password !== password) {
+        return res.status(401).json({ error: 'Invalid password!' });
+      }
+      const isSuper = user.role === 'Super Admin' || user.username.toLowerCase() === 'superadmin' || user.username.toLowerCase() === 'admin';
+      return res.json({
+        message: 'Login successful!',
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          companyName: user.companyName,
+          logo: user.logo || '',
+          role: user.role,
+          isSuperAdmin: isSuper
+        }
+      });
+    }
+
+    // 3. Fallback for default admin
+    if (cleanLogin.toLowerCase() === 'admin') {
+      let adminUser = await User.findOne({ username: { $regex: /^admin$/i } });
+      const adminPass = adminUser ? adminUser.password : 'admin123';
+      if (password === adminPass) {
+        return res.json({
+          message: 'Login successful as Admin!',
+          user: {
+            username: 'admin',
+            email: 'admin@library.edu',
+            companyName: 'Library Management',
+            logo: '',
+            role: 'Super Admin',
+            isSuperAdmin: true
+          }
+        });
+      }
+    }
+
+    return res.status(401).json({ error: 'Invalid username or password!' });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed due to a server error.' });
+  }
+});
+
+// Fetch registered company name and logo
+app.get('/api/company', async (req, res) => {
+  try {
+    const { account } = req.query;
+    let targetUser = null;
+    if (account && account.toLowerCase() !== 'superadmin') {
+      targetUser = await User.findOne({ username: { $regex: new RegExp(`^${account}$`, 'i') } });
+    }
+    if (!targetUser) {
+      targetUser = await User.findOne({ username: { $not: /^superadmin$/i } }).sort({ createdAt: -1 });
+    }
+    res.json({
+      companyName: targetUser ? targetUser.companyName : 'Library Management',
+      logo: targetUser && targetUser.logo ? targetUser.logo : ''
+    });
+  } catch (err) {
+    res.json({ companyName: 'Library Management', logo: '' });
+  }
+});
+
+
+// =============================================
+// SUPER ADMIN ACCOUNTS ROUTES
+// =============================================
+
+// Get all registered accounts with statistics (Super Admin panel)
+app.get('/api/accounts', async (req, res) => {
+  try {
+    const users = await User.find().sort({ createdAt: -1 });
+
+    const accountsWithStats = await Promise.all(
+      users.map(async (u) => {
+        const usernameRegex = new RegExp(`^${u.username}$`, 'i');
+        const isLegacyAdmin = u.username.toLowerCase() === 'admin';
+
+        const filter = isLegacyAdmin
+          ? { $or: [{ accountUsername: usernameRegex }, { accountUsername: { $in: ['', null] } }] }
+          : { accountUsername: usernameRegex };
+
+        const [booksCount, studentsCount, activeIssuesCount] = await Promise.all([
+          Book.countDocuments(filter),
+          Student.countDocuments(filter),
+          Transaction.countDocuments({ ...filter, status: { $in: ['issued', 'overdue'] } })
+        ]);
+
+        return {
+          id: u._id,
+          username: u.username,
+          email: u.email,
+          companyName: u.companyName,
+          logo: u.logo || '',
+          role: u.role || 'Admin',
+          createdAt: u.createdAt,
+          booksCount,
+          studentsCount,
+          activeIssuesCount
+        };
+      })
+    );
+
+    res.json(accountsWithStats);
+  } catch (err) {
+    console.error('Error fetching accounts:', err);
+    res.status(500).json({ error: 'Failed to fetch accounts list' });
+  }
+});
+
+// Delete account (Super Admin only)
+app.delete('/api/accounts/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+    if (user.username.toLowerCase() === 'superadmin') {
+      return res.status(400).json({ error: 'Superadmin primary account cannot be deleted!' });
+    }
+
+    // Clean up this account's books, students, and transactions
+    const usernameRegex = new RegExp(`^${user.username}$`, 'i');
+    await Promise.all([
+      Book.deleteMany({ accountUsername: usernameRegex }),
+      Student.deleteMany({ accountUsername: usernameRegex }),
+      Transaction.deleteMany({ accountUsername: usernameRegex }),
+      User.findByIdAndDelete(req.params.id)
+    ]);
+
+    res.json({ message: `Account "${user.username}" and associated library data removed successfully!` });
+  } catch (err) {
+    console.error('Error deleting account:', err);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// Reveal account username & password (protected by Superadmin password)
+app.post('/api/accounts/:id/credentials', async (req, res) => {
+  try {
+    const { superadminPassword } = req.body;
+    if (!superadminPassword || typeof superadminPassword !== 'string') {
+      return res.status(400).json({ error: 'Superadmin password is required.' });
+    }
+
+    // 1. Verify Superadmin password against database
+    const superadminUser = await User.findOne({
+      $or: [
+        { username: { $regex: /^superadmin$/i } },
+        { role: 'Super Admin' }
+      ]
+    });
+
+    const isMatch = (superadminUser && superadminUser.password === superadminPassword) ||
+                    (!superadminUser && superadminPassword === 'admin123');
+
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Incorrect Superadmin password!' });
+    }
+
+    // 2. Retrieve target account
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Account not found.' });
+    }
+
+    res.json({
+      id: targetUser._id,
+      username: targetUser.username,
+      password: targetUser.password,
+      email: targetUser.email,
+      companyName: targetUser.companyName
+    });
+  } catch (err) {
+    console.error('Error revealing account credentials:', err);
+    res.status(500).json({ error: 'Failed to retrieve account credentials.' });
+  }
+});
+
+// Change user password (persists directly in MongoDB)
+app.put('/api/users/change-password', async (req, res) => {
+  try {
+    const { username, currentPassword, newPassword } = req.body;
+    if (!username || !currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'All fields are required.' });
+    }
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: 'New password must be at least 4 characters.' });
+    }
+
+    const cleanUsername = username.trim();
+    const user = await User.findOne({
+      $or: [
+        { username: { $regex: new RegExp(`^${cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+        { email: cleanUsername.toLowerCase() }
+      ]
+    });
+
+    if (user) {
+      if (user.password !== currentPassword) {
+        return res.status(400).json({ error: 'Current password is incorrect!' });
+      }
+      user.password = newPassword;
+      await user.save();
+      return res.json({ message: 'Password updated successfully!' });
+    }
+
+    return res.status(404).json({ error: 'User account not found.' });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Failed to update password.' });
+  }
+});
+
+
+
+
+
+// =============================================
+// BOOK ROUTES (Account Isolated)
+// =============================================
+
+// Helper for multi-tenant query filter
+function buildAccountFilter(account) {
+  if (!account || account === 'all' || account.toLowerCase() === 'superadmin') {
+    return {};
+  }
+  if (account.toLowerCase() === 'admin') {
+    return {
+      $or: [
+        { accountUsername: { $regex: /^admin$/i } },
+        { accountUsername: { $in: ['', null] } }
+      ]
+    };
+  }
+  return { accountUsername: { $regex: new RegExp(`^${account}$`, 'i') } };
+}
+
+// Get books (filtered by account or all for Superadmin)
 app.get('/api/books', async (req, res) => {
   try {
-    const books = await Book.find();
+    const filter = buildAccountFilter(req.query.account);
+    const books = await Book.find(filter);
     res.json(books);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch books' });
   }
 });
 
-// Add a new book
+// Add a new book (tagged with accountUsername)
 app.post('/api/books', async (req, res) => {
   try {
     const newBook = new Book(req.body);
@@ -107,13 +517,14 @@ app.put('/api/books/:id', async (req, res) => {
 
 
 // =============================================
-// STUDENT ROUTES
+// STUDENT ROUTES (Account Isolated)
 // =============================================
 
-// Get all students
+// Get students (filtered by account or all for Superadmin)
 app.get('/api/students', async (req, res) => {
   try {
-    const students = await Student.find();
+    const filter = buildAccountFilter(req.query.account);
+    const students = await Student.find(filter);
     res.json(students);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch students' });
@@ -152,16 +563,29 @@ app.put('/api/students/:id', async (req, res) => {
 });
 
 
-
 // =============================================
-// TRANSACTION ROUTES
+// TRANSACTION ROUTES (Account Isolated)
 // =============================================
 
-// Get all transactions
+// Get transactions (with automatic overdue check)
 app.get('/api/transactions', async (req, res) => {
   try {
-    const transactions = await Transaction.find();
-    res.json(transactions);
+    const filter = buildAccountFilter(req.query.account);
+    const today = new Date().toISOString().split('T')[0];
+    const transactions = await Transaction.find(filter);
+
+    // Automatically flag past-due active transactions as overdue
+    const updated = await Promise.all(
+      transactions.map(async (t) => {
+        if (t.status === 'issued' && t.dueDate && t.dueDate < today) {
+          t.status = 'overdue';
+          await t.save();
+        }
+        return t;
+      })
+    );
+
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch transactions' });
   }

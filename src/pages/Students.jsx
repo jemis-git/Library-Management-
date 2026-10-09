@@ -138,16 +138,19 @@ function StudentModal({ initialData, onClose, onSave }) {
 // =============================================
 // Students Page - Main Component
 // =============================================
-export default function Students({ students, setStudents, showToast, API }) {
+export default function Students({ students, setStudents, showToast, API, currentUser }) {
 
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editingStudent, setEditingStudent] = useState(null)
 
+  const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'Super Admin' || currentUser?.username?.toLowerCase() === 'superadmin'
+
   // Search filter
   const filteredStudents = students.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.rollNo.toLowerCase().includes(search.toLowerCase())
+    s.rollNo.toLowerCase().includes(search.toLowerCase()) ||
+    (isSuperAdmin && s.accountUsername && s.accountUsername.toLowerCase().includes(search.toLowerCase()))
   )
 
   // Add or Edit a student
@@ -169,10 +172,14 @@ export default function Students({ students, setStudents, showToast, API }) {
     } else {
       // Add Mode
       try {
+        const payload = {
+          ...studentData,
+          accountUsername: currentUser?.username || ''
+        }
         const res = await fetch(`${API}/students`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(studentData)
+          body: JSON.stringify(payload)
         })
         const newStudent = await res.json()
         setStudents(prev => [...prev, newStudent])
@@ -212,7 +219,7 @@ export default function Students({ students, setStudents, showToast, API }) {
       {/* Filter Row */}
       <div className="filter-row">
         <div className="search-box" style={{ flex: 1 }}>
-          🔍 <input placeholder="Search by student name or roll number..."
+          🔍 <input placeholder={isSuperAdmin ? "Search by student name, roll number, or account..." : "Search by student name or roll number..."}
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <button className="btn btn-green" onClick={openAddModal}>
@@ -241,23 +248,35 @@ export default function Students({ students, setStudents, showToast, API }) {
                   <th>Branch</th>
                   <th>Year</th>
                   <th>Phone</th>
+                  {isSuperAdmin && <th>Account</th>}
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredStudents.map((student, index) => (
                   <tr key={student._id}>
-                    <td style={{ color: '#666' }}>{index + 1}</td>
+                    <td style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>{index + 1}</td>
                     <td>
                       <strong>{student.name}</strong>
-                      {student.email && <><br /><small style={{ color: '#888' }}>{student.email}</small></>}
+                      {student.email && <><br /><small style={{ color: 'var(--text-muted)' }}>{student.email}</small></>}
                     </td>
-                    <td><code style={{ background: '#0f3460', padding: '2px 7px', borderRadius: 4, fontSize: 12 }}>{student.rollNo}</code></td>
-                    <td style={{ color: '#7c83fd' }}>{student.branch}</td>
-                    <td style={{ color: '#888', fontSize: 13 }}>{student.year}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{student.phone || '—'}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <code style={{ background: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', padding: '3px 8px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                        {student.rollNo}
+                      </code>
+                    </td>
+                    <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{student.branch}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{student.year}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{student.phone || '—'}</td>
+                    {isSuperAdmin && (
+                      <td>
+                        <span className="badge badge-admin" style={{ fontSize: 11 }}>
+                          @{student.accountUsername || 'admin'}
+                        </span>
+                      </td>
+                    )}
+                    <td>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <button className="btn btn-blue" style={{ padding: '5px 10px', fontSize: 12 }}
                           onClick={() => openEditModal(student)}>
                           ✏️ Edit

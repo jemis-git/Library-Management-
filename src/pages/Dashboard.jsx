@@ -11,41 +11,41 @@ export default function Dashboard({ books, students, transactions, totalBooks, a
 
       {/* ---- 4 STATS CARDS ---- */}
       <div className="stats-row">
-        <div className="stat-card">
+        <div className="stat-card stat-books">
           <div className="stat-icon">📚</div>
           <div>
             <div className="stat-number">{totalBooks}</div>
             <div className="stat-label">Total Books</div>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card stat-available">
           <div className="stat-icon">✅</div>
           <div>
-            <div className="stat-number" style={{ color: '#4caf50' }}>{availableBooks}</div>
+            <div className="stat-number">{availableBooks}</div>
             <div className="stat-label">Available</div>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card stat-issued">
           <div className="stat-icon">📤</div>
           <div>
-            <div className="stat-number" style={{ color: '#ff9800' }}>{issuedCount}</div>
+            <div className="stat-number">{issuedCount}</div>
             <div className="stat-label">Issued</div>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card stat-overdue">
           <div className="stat-icon">⚠️</div>
           <div>
-            <div className="stat-number" style={{ color: '#e57373' }}>{overdueCount}</div>
+            <div className="stat-number">{overdueCount}</div>
             <div className="stat-label">Overdue</div>
           </div>
         </div>
       </div>
 
-      {/* ---- 2 COLUMN ROW ---- */}
-      <div style={{ display: 'flex', gap: 20 }}>
+      {/* ---- 2 COLUMN RESPONSIVE GRID ---- */}
+      <div className="dashboard-grid">
 
         {/* Recent Transactions */}
-        <div className="card" style={{ flex: 2 }}>
+        <div className="card">
           <div className="card-header">
             <h3>📋 Recent Transactions</h3>
             <button className="btn btn-gray" onClick={() => setPage('history')}>
@@ -71,9 +71,9 @@ export default function Dashboard({ books, students, transactions, totalBooks, a
                 <tbody>
                   {recentTxns.map(t => (
                     <tr key={t._id}>
-                      <td><strong>{t.studentName}</strong><br /><small style={{ color: '#888' }}>{t.rollNo}</small></td>
-                      <td style={{ fontSize: 12 }}>{t.bookTitle}</td>
-                      <td style={{ fontSize: 12, color: t.status === 'overdue' ? '#e57373' : '#888' }}>{t.dueDate}</td>
+                      <td><strong>{t.studentName}</strong><br /><small style={{ color: 'var(--text-muted)' }}>{t.rollNo}</small></td>
+                      <td>{t.bookTitle}</td>
+                      <td style={{ color: t.status === 'overdue' ? 'var(--danger)' : 'var(--text-muted)' }}>{t.dueDate}</td>
                       <td><span className={`badge badge-${t.status}`}>{t.status}</span></td>
                     </tr>
                   ))}
@@ -83,8 +83,8 @@ export default function Dashboard({ books, students, transactions, totalBooks, a
           )}
         </div>
 
-        {/* Quick Actions */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Quick Actions & Summary */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div className="card">
             <div className="card-header">
               <h3>⚡ Quick Actions</h3>
@@ -103,21 +103,25 @@ export default function Dashboard({ books, students, transactions, totalBooks, a
           </div>
 
           <div className="card">
-            <div className="card-header"><h3>📊 Summary</h3></div>
-            <div className="card-body">
+            <div className="card-header"><h3>📊 Library Summary</h3></div>
+            <div className="card-body" style={{ padding: '8px 18px' }}>
               <table style={{ width: '100%' }}>
                 <tbody>
                   <tr>
-                    <td style={{ color: '#888', fontSize: 13 }}>Total Students</td>
+                    <td style={{ color: 'var(--text-muted)' }}>Total Students</td>
                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{students.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ color: '#888', fontSize: 13 }}>Total Titles</td>
+                    <td style={{ color: 'var(--text-muted)' }}>Total Book Titles</td>
                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{books.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ color: '#888', fontSize: 13 }}>Issued Now</td>
-                    <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#ff9800' }}>{issuedCount}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>Currently Borrowed</td>
+                    <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--warning)' }}>{issuedCount}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--text-muted)' }}>Overdue Books</td>
+                    <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--danger)' }}>{overdueCount}</td>
                   </tr>
                 </tbody>
               </table>
